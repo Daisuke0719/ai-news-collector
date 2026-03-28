@@ -1,0 +1,57 @@
+name: AI News Collector (Daily)
+
+on:
+  schedule:
+    # 毎日 01:00 UTC = 日本時間 10:00
+    - cron: '0 1 * * *'
+  workflow_dispatch:  # 手動実行も可能
+
+permissions:
+  contents: write  # sent_ids.json をコミットするため
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore dedup cache (sent_ids.json)
+        uses: actions/cache@v4
+        with:
+          path: data/sent_ids.json
+          key: sent-ids-${{ github.run_id }}
+          restore-keys: |
+            sent-ids-
+
+      - name: Run collector
+        env:
+          ANTHROPIC_API_KEY:           ${{ secrets.ANTHROPIC_API_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN:   ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID:                ${{ secrets.LINE_USER_ID }}
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_DATABASE_ID:          ${{ secrets.NOTION_DATABASE_ID }}
+          GITHUB_TOKEN:                ${{ secrets.GITHUB_TOKEN }}
+          LOOKBACK_HOURS:              "25"
+        run: |
+          cd src
+          python main.py
+
+      - name: Commit sent_ids.json
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/sent_ids.json || true
+          git diff --staged --quiet || git commit -m "chore: update sent_ids [skip ci]"
+          git push || true
