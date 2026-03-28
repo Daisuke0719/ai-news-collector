@@ -35,6 +35,7 @@ RSS_FEEDS = [
         "label": "Claude Code Changelog",
         "url": "https://docs.anthropic.com/en/release-notes/claude-code",
         "rss": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_changelog_claude_code.xml",
+        "latest_only": True,  # 最新バージョンのみ通知
     },
     {
         "id": "claude_blog",
@@ -95,56 +96,12 @@ RSS_FEEDS = [
         "url": "https://openclaw.ai/blog",
         "rss": "https://openclaw.ai/blog/rss.xml",
     },
-    # --- Skills ---
-    {
-        "id": "skillsmp_new",
-        "tool": "Skills",
-        "label": "SkillsMP 新着スキル",
-        "url": "https://skillsmp.com",
-        "rss": "https://skillsmp.com/rss/new.xml",
-    },
-    # --- コミュニティ / メディア ---
-    {
-        "id": "medium_claude_skills",
-        "tool": "Skills",
-        "label": "Medium - Claude Skills",
-        "url": "https://medium.com/tag/claude-skills",
-        "rss": "https://medium.com/feed/tag/claude-skills",
-    },
-    {
-        "id": "devto_claudeskills",
-        "tool": "Skills",
-        "label": "DEV.to - claudeskills",
-        "url": "https://dev.to/t/claudeskills",
-        "rss": "https://dev.to/feed/tag/claudeskills",
-    },
-    {
-        "id": "reddit_claudeai",
-        "tool": "Claude",
-        "label": "Reddit r/ClaudeAI",
-        "url": "https://www.reddit.com/r/ClaudeAI/",
-        "rss": "https://www.reddit.com/r/ClaudeAI/top/.rss?t=day",
-    },
-    {
-        "id": "reddit_openai",
-        "tool": "Codex",
-        "label": "Reddit r/OpenAI",
-        "url": "https://www.reddit.com/r/OpenAI/",
-        "rss": "https://www.reddit.com/r/OpenAI/top/.rss?t=day",
-    },
 ]
 
 # ========================================
 # Google News RSS（キーワード別）
 # ========================================
-GOOGLE_NEWS_KEYWORDS = [
-    {"keyword": "Claude AI Anthropic",  "tool": "Claude",    "label": "Google News - Claude"},
-    {"keyword": "Claude Code",          "tool": "Claude Code","label": "Google News - Claude Code"},
-    {"keyword": "Gemini Google AI",     "tool": "Gemini",    "label": "Google News - Gemini"},
-    {"keyword": "OpenAI Codex",         "tool": "Codex",     "label": "Google News - Codex"},
-    {"keyword": "OpenClaw AI agent",    "tool": "OpenClaw",  "label": "Google News - OpenClaw"},
-    {"keyword": "Claude Skills SKILL.md","tool": "Skills",   "label": "Google News - Skills"},
-]
+GOOGLE_NEWS_KEYWORDS = []
 
 def google_news_rss_url(keyword: str) -> str:
     import urllib.parse
@@ -156,57 +113,23 @@ def google_news_rss_url(keyword: str) -> str:
 # ========================================
 GITHUB_REPOS = [
     {
-        "id": "openclaw_releases",
-        "tool": "OpenClaw",
-        "label": "OpenClaw GitHub Releases",
-        "owner": "openclaw",
-        "repo": "openclaw",
-        "type": "releases",
-    },
-    {
-        "id": "openai_codex_releases",
-        "tool": "Codex",
-        "label": "openai/codex GitHub Releases",
-        "owner": "openai",
-        "repo": "codex",
-        "type": "releases",
-    },
-    {
         "id": "anthropic_skills_commits",
         "tool": "Skills",
-        "label": "anthropics/skills 新コミット",
+        "label": "Anthropic公式Skills更新",
         "owner": "anthropics",
         "repo": "skills",
         "type": "commits",
-    },
-    {
-        "id": "awesome_claude_skills_commits",
-        "tool": "Skills",
-        "label": "awesome-claude-skills 更新",
-        "owner": "travisvn",
-        "repo": "awesome-claude-skills",
-        "type": "commits",
+        "path": "skills",  # skills/ ディレクトリの変更のみ追跡
     },
 ]
 
-# GitHub Search API: 新着 SKILL.md リポジトリ
-GITHUB_SKILL_SEARCH_QUERIES = [
-    "filename:SKILL.md",           # 新着スキルファイル
-    "topic:claude-skills",         # Claude Skills タグ
-    "topic:claude-code-skills",    # Claude Code Skills タグ
-]
+# GitHub Search API: 新着リポジトリ検索
+GITHUB_SKILL_SEARCH_QUERIES = []
 
 # ========================================
 # HackerNews Algolia API キーワード
 # ========================================
-HACKERNEWS_KEYWORDS = [
-    {"query": "Claude Code",   "tool": "Claude Code", "label": "HN - Claude Code"},
-    {"query": "Anthropic",     "tool": "Claude",      "label": "HN - Anthropic"},
-    {"query": "OpenClaw",      "tool": "OpenClaw",    "label": "HN - OpenClaw"},
-    {"query": "Codex OpenAI",  "tool": "Codex",       "label": "HN - Codex"},
-    {"query": "Gemini Google", "tool": "Gemini",      "label": "HN - Gemini"},
-    {"query": "SKILL.md agent","tool": "Skills",      "label": "HN - Skills"},
-]
+HACKERNEWS_KEYWORDS = []
 
 # ========================================
 # ツール別の色・絵文字マッピング（LINE通知用）

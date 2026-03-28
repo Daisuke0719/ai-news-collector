@@ -42,13 +42,14 @@ ai-news-collector/
 ## 🔄 データフロー（main.pyの処理順）
 
 ```
-Step 1: collect_all()         → 全ソースから記事を収集（生データ）
+Step 1: collect_all()         → 全ソースから記事を収集（生データ + 全文テキスト）
 Step 2: filter_new()          → sent_ids.json と照合して新着だけ抽出
 Step 3: ツール別優先度ソート   → Claude Code > Claude > Codex > Gemini > OpenClaw > Skills
-Step 4: summarize_batch()     → Claude API で日本語要約 + 重要度（高/中/低）判定
+Step 4: summarize_batch()     → Gemini API で日本語要約 + 重要度（高/中/低）判定
+Step 4.5: translate_articles() → 重要度「高」「中」の記事を全文日本語翻訳
 Step 5: 重要度ソート           → 高 > 中 > 低
-Step 6: send_line()           → LINE に通知（ツール別グループ化）
-Step 7: save_to_notion()      → Notion DB に1件ずつ保存
+Step 6: save_to_notion()      → Notion DB に1件ずつ保存（全文翻訳はページ本文に追加、notion_urlを記事に付与）
+Step 7: send_line()           → LINE に記事単位で通知（要約全文 + 引用元URL + Notion全文リンク）
        mark_all_seen()        → sent_ids.json に記録
 ```
 
@@ -60,17 +61,20 @@ Step 7: save_to_notion()      → Notion DB に1件ずつ保存
 
 ```python
 {
-    "id":          str,   # make_id(url, title) で生成したMD5ハッシュ（重複チェックキー）
-    "tool":        str,   # "Claude" | "Claude Code" | "Gemini" | "Codex" | "OpenClaw" | "Skills"
-    "label":       str,   # 収集元の表示名（例: "Anthropic公式ニュース"）
-    "title":       str,   # 記事タイトル
-    "url":         str,   # 元記事URL
-    "published":   str,   # ISO形式の日時文字列 or None
-    "raw_summary": str,   # 収集時の生テキスト（Claude要約前）
-    "emoji":       str,   # TOOL_EMOJI から取得した絵文字
+    "id":               str,   # make_id(url, title) で生成したMD5ハッシュ（重複チェックキー）
+    "tool":             str,   # "Claude" | "Claude Code" | "Gemini" | "Codex" | "OpenClaw" | "Skills"
+    "label":            str,   # 収集元の表示名（例: "Anthropic公式ニュース"）
+    "title":            str,   # 記事タイトル
+    "url":              str,   # 元記事URL
+    "published":        str,   # ISO形式の日時文字列 or None
+    "raw_summary":      str,   # 収集時の生テキスト（制限なし）
+    "full_content":     str,   # 記事の全文テキスト（RSS content / 記事ページ取得）
+    "emoji":            str,   # TOOL_EMOJI から取得した絵文字
     # summarize_batch() 実行後に追加される:
-    "summary":     str,   # Claude APIが生成した日本語要約
-    "importance":  str,   # "高" | "中" | "低"
+    "summary":          str,   # Gemini APIが生成した日本語要約（ポイント網羅）
+    "importance":       str,   # "高" | "中" | "低"
+    # translate_articles() 実行後に追加される:
+    "full_translation": str,   # 全文日本語訳（重要度「高」「中」のみ）
 }
 ```
 
@@ -80,7 +84,7 @@ Step 7: save_to_notion()      → Notion DB に1件ずつ保存
 
 | 変数名 | 用途 | 必須 |
 |--------|------|------|
-| `ANTHROPIC_API_KEY` | Claude API（要約生成） | ✅ |
+| `GEMINI_API_KEY` | Gemini API（要約生成・全文翻訳） | ✅ |
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API | ✅ |
 | `LINE_USER_ID` | LINE送信先ユーザーID | ✅ |
 | `NOTION_API_KEY` | Notion Integration Token | ✅ |
@@ -89,7 +93,7 @@ Step 7: save_to_notion()      → Notion DB に1件ずつ保存
 | `LOOKBACK_HOURS` | 収集対象の時間幅（デフォルト: 25） | ❌ |
 
 環境変数が未設定の場合、LINE/Notionはスキップされるがエラーにはならない（graceful degradation）。
-`ANTHROPIC_API_KEY` のみ未設定でクラッシュする（summarizer.pyで `os.environ["ANTHROPIC_API_KEY"]` と直接参照しているため）。
+`GEMINI_API_KEY` のみ未設定でクラッシュする（summarizer.pyで `os.environ["GEMINI_API_KEY"]` と直接参照しているため）。
 
 ---
 
@@ -257,7 +261,7 @@ print(result[0]['importance'])
 
 ### やってはいけないこと
 - `dedup.py` の `make_id()` のロジックを変更しない → sent_ids.json との整合性が壊れる
-- `summarizer.py` の `BATCH_SIZE` を10より大きくしない → Claude APIのコンテキスト上限に引っかかる
+- `summarizer.py` の `BATCH_SIZE` を10より大きくしない → Gemini APIのコンテキスト上限に引っかかる（全文入力のため現在は3に設定）
 - `notifier_line.py` の `MAX_MESSAGES_PER_PUSH` を5より大きくしない → LINE APIの制限
 - `main.py` の Step7（`mark_all_seen`）をStep6より前に移動しない → 通知失敗時に再送できなくなる
 

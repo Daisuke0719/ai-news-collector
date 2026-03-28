@@ -3,12 +3,24 @@ AI最新情報収集ツール - メインエントリポイント
 毎日 GitHub Actions から実行される
 """
 
+import io
 import sys
 import traceback
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# プロジェクトルートの .env を読み込む（存在しない場合はスキップ）
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# Windows環境でのUnicodeEncodeError対策（cp932で絵文字が出力できない問題）
+if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from collect import collect_all
 from dedup import filter_new, mark_all_seen
-from summarizer import summarize_batch
+from summarizer import summarize_batch, translate_articles
 from notifier_line import send_line, send_line_error
 from notifier_notion import save_to_notion
 
@@ -36,8 +48,8 @@ def main():
             priority_tools.index(a["tool"]) if a["tool"] in priority_tools else 99
         ))
 
-        # Step 4: Claude API で日本語要約
-        print("\n💬 Claude APIで日本語要約中...")
+        # Step 4: Gemini API で日本語要約
+        print("\n💬 Gemini APIで日本語要約中...")
         summarized = summarize_batch(new_articles)
         print(f"  → {len(summarized)}件 要約完了")
 
@@ -45,13 +57,17 @@ def main():
         importance_order = {"高": 0, "中": 1, "低": 2}
         summarized.sort(key=lambda a: importance_order.get(a.get("importance", "中"), 1))
 
-        # Step 5: LINE 通知
-        print("\n📲 LINE通知送信中...")
-        send_line(summarized)
+        # Step 4.5: 重要記事の全文翻訳
+        print("\n📖 重要記事の全文翻訳中...")
+        summarized = translate_articles(summarized)
 
-        # Step 6: Notion 保存
+        # Step 5: Notion 保存（LINE通知にNotion URLを含めるため先に実行）
         print("\n📓 Notion保存中...")
         save_to_notion(summarized)
+
+        # Step 6: LINE 通知
+        print("\n📲 LINE通知送信中...")
+        send_line(summarized)
 
         # Step 7: 送信済みとしてマーク
         mark_all_seen(summarized)

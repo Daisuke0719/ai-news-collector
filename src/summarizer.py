@@ -1,5 +1,5 @@
 """
-Claude API を使って記事を日本語要約するモジュール
+Gemini API を使って記事を日本語要約するモジュール
 """
 
 import os
@@ -7,18 +7,23 @@ import json
 import time
 import requests
 
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-API_URL = "https://api.anthropic.com/v1/messages"
-MODEL = "claude-sonnet-4-20250514"
-MAX_TOKENS = 300
-BATCH_SIZE = 5  # 1回のAPI呼び出しでまとめて要約する記事数
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+MODEL = "gemini-2.5-flash"
+# MAX_TOKENS = 500
+BATCH_SIZE = 3  # 1回のAPI呼び出しでまとめて要約する記事数（全文入力のため小さめ）
 
 
 SYSTEM_PROMPT = """あなたはAI技術情報のキュレーターです。
-与えられた英語の記事タイトルと要約を、日本語で簡潔に要約してください。
+与えられた英語の記事タイトルと本文を、日本語で要約してください。
 
 【ルール】
-- 2〜3文で簡潔にまとめる
+- 記事のポイントを漏らさず、しっかりとまとめる
+  - 何が発表・変更されたか
+  - どんな影響があるか、誰が対象か
+  - 技術的な詳細や背景
+- 読んだ人が元記事を読まなくても要点を把握できるレベルにする
+- 短くまとめることより、ポイントを漏らさないことを優先する
 - 技術的な固有名詞（Claude Code、SKILL.md等）はそのまま使う
 - 重要度（高/中/低）を判定する
   - 高: 新モデルリリース、重大機能追加、セキュリティ問題
@@ -56,34 +61,40 @@ def _summarize_single_batch(batch: list, offset: int = 0) -> list:
     # プロンプト組み立て
     items_text = ""
     for idx, article in enumerate(batch):
+        # full_content優先、なければraw_summaryを使用（制限なし）
+        content = article.get("full_content") or article.get("raw_summary", "")
         items_text += f"""
 --- 記事 {idx} ---
 ツール: {article['tool']}
 タイトル: {article['title']}
-概要: {article.get('raw_summary', '')[:300]}
+本文: {content}
 URL: {article['url']}
 """
 
     user_message = f"以下の記事{len(batch)}件を要約してください:\n{items_text}"
 
     try:
+        url = f"{API_URL}/{MODEL}:generateContent?key={GEMINI_API_KEY}"
         resp = requests.post(
-            API_URL,
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
+            url,
+            headers={"Content-Type": "application/json"},
             json={
-                "model": MODEL,
-                "max_tokens": MAX_TOKENS * len(batch),
-                "system": SYSTEM_PROMPT,
-                "messages": [{"role": "user", "content": user_message}],
+                "systemInstruction": {
+                    "parts": [{"text": SYSTEM_PROMPT}]
+                },
+                "contents": [
+                    {"role": "user", "parts": [{"text": user_message}]}
+                ],
+                "generationConfig": {
+                    # "maxOutputTokens": MAX_TOKENS * len(batch),
+                    "temperature": 0,
+                    "responseMimeType": "application/json",
+                },
             },
             timeout=60,
         )
         resp.raise_for_status()
-        text = resp.json()["content"][0]["text"].strip()
+        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
 
         # JSON パース
         parsed = json.loads(text)
@@ -95,7 +106,7 @@ URL: {article['url']}
                 article["summary"] = item.get("summary", "")
                 article["importance"] = item.get("importance", "中")
                 results.append(article)
-            
+
         # パース失敗時のフォールバック
         if len(results) != len(batch):
             results = _fallback_results(batch)
@@ -111,7 +122,73 @@ def _fallback_results(batch: list) -> list:
     results = []
     for article in batch:
         a = article.copy()
-        a["summary"] = article.get("raw_summary", article["title"])[:200]
+        a["summary"] = article.get("raw_summary", article["title"])
         a["importance"] = "中"
         results.append(a)
     return results
+
+
+# ========================================
+# 全文翻訳機能
+# ========================================
+
+TRANSLATE_PROMPT = """以下の英語記事を日本語に全文翻訳してください。
+
+【ルール】
+- 技術用語（Claude Code, API, LLM, GitHub等）は英語のまま残す
+- 段落構造を維持する
+- マークダウン記法はそのまま保持する
+- 翻訳のみを返す（説明やコメントは不要）"""
+
+
+def translate_articles(articles: list) -> list:
+    """重要度「高」「中」の記事に全文翻訳を追加"""
+    if not articles:
+        return []
+
+    translated = 0
+    for article in articles:
+        importance = article.get("importance", "中")
+        if importance == "低":
+            article["full_translation"] = ""
+            continue
+
+        content = article.get("full_content") or article.get("raw_summary", "")
+        if not content:
+            article["full_translation"] = ""
+            continue
+
+        article["full_translation"] = _translate_single(content)
+        if article["full_translation"]:
+            translated += 1
+        time.sleep(1)  # レート制限対策
+
+    print(f"[Translate] {translated}件の記事を翻訳完了")
+    return articles
+
+
+def _translate_single(content: str) -> str:
+    """1記事分の全文翻訳"""
+    try:
+        url = f"{API_URL}/{MODEL}:generateContent?key={GEMINI_API_KEY}"
+        resp = requests.post(
+            url,
+            headers={"Content-Type": "application/json"},
+            json={
+                "systemInstruction": {
+                    "parts": [{"text": TRANSLATE_PROMPT}]
+                },
+                "contents": [
+                    {"role": "user", "parts": [{"text": content}]}
+                ],
+                "generationConfig": {
+                    "temperature": 0,
+                },
+            },
+            timeout=120,
+        )
+        resp.raise_for_status()
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        print(f"[Translate ERROR] {e}")
+        return ""
